@@ -1,8 +1,56 @@
-import { useState } from 'react';
-import { SectionHeading, gallery, imageUrl } from '../data';
+import { useState, useEffect } from 'react';
+import { SectionHeading, gallery as fallbackGallery, imageUrl } from '../data';
 
 export default function Gallery() {
   const [galleryFilter, setGalleryFilter] = useState('All');
+  const [gallery, setGallery] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [usingFallback, setUsingFallback] = useState(false);
+
+  useEffect(() => {
+    const fetchGallery = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/v1/gallery');
+        const data = await res.json();
+        const items = Array.isArray(data) ? data : (data?.data || []);
+        if (items.length > 0) {
+          setGallery(items);
+        } else {
+          // If no items from backend, use fallback data
+          setGallery(fallbackGallery.map(([title, category, image]) => ({
+            id: title,
+            title,
+            category,
+            image_url: imageUrl(image),
+            url: imageUrl(image),
+          })));
+          setUsingFallback(true);
+        }
+      } catch (err) {
+        console.error('Error fetching gallery:', err);
+        // Fallback to hardcoded data
+        setGallery(fallbackGallery.map(([title, category, image]) => ({
+          id: title,
+          title,
+          category,
+          image_url: imageUrl(image),
+          url: imageUrl(image),
+        })));
+        setUsingFallback(true);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchGallery();
+  }, []);
+
+  // Collect unique categories from fetched data
+  const categories = ['All', ...new Set(gallery.map(item => item.category || 'General').filter(Boolean))];
+
+  const filteredGallery = gallery.filter(item => {
+    if (galleryFilter === 'All') return true;
+    return (item.category || 'General') === galleryFilter;
+  });
 
   return (
     <section className="section section-muted gallery-section" id="gallery">
@@ -10,24 +58,38 @@ export default function Gallery() {
         A glimpse into our activities, events, and the lives we touch across the campus and community.
       </SectionHeading>
       <div className="gallery-filters" role="group" aria-label="Filter gallery">
-        {['All', 'Team', 'Outreach', 'Events'].map(filter => (
+        {categories.map(filter => (
           <button key={filter} className={galleryFilter === filter ? 'selected' : ''} onClick={() => setGalleryFilter(filter)} aria-pressed={galleryFilter === filter}>
             {filter}
           </button>
         ))}
       </div>
-      <div className="gallery-grid">
-        {gallery.filter(([, category]) => galleryFilter === 'All' || category === galleryFilter).map(([title, category, image]) => (
-          <a className="gallery-card" href={imageUrl(image)} target="_blank" rel="noreferrer" key={title}>
-            <img src={imageUrl(image)} alt={title} loading="lazy" />
-            <div>
-              <span>{category}</span>
-              <h3>{title}</h3>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#717984' }}>
+          <p>Loading gallery...</p>
+        </div>
+      ) : (
+        <div className="gallery-grid">
+          {filteredGallery.map(item => {
+            const imgSrc = item.image_url || item.url;
+            return (
+              <a className="gallery-card" href={imgSrc} target="_blank" rel="noreferrer" key={item.id || item.title}>
+                <img src={imgSrc} alt={item.title} loading="lazy" />
+                <div>
+                  <span>{item.category || 'General'}</span>
+                  <h3>{item.title}</h3>
+                </div>
+                <span className="gallery-plus">+</span>
+              </a>
+            );
+          })}
+          {filteredGallery.length === 0 && (
+            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px 20px', color: '#717984' }}>
+              <p>No photos found for this category.</p>
             </div>
-            <span className="gallery-plus">+</span>
-          </a>
-        ))}
-      </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

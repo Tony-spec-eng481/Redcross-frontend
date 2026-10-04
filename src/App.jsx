@@ -11,6 +11,8 @@ import Contact from './pages/Contact';
 
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 import PortalLayout from './components/PortalLayout';
 import Dashboard from './pages/Portal/Dashboard';
@@ -42,6 +44,8 @@ function App() {
         {/* Authentication Routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Membership Portal Routes */}
         <Route path="/portal" element={<PortalLayout />}>

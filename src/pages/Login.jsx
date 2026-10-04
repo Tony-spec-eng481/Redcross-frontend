@@ -6,10 +6,11 @@ import './Auth.css';
 
 export default function Login() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('john@gmail.com');
-  const [password, setPassword] = useState('John1234');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   
   const [attempts, setAttempts] = useState(0);
   const [lockoutUntil, setLockoutUntil] = useState(null);
@@ -35,46 +36,37 @@ export default function Login() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setError('');
 
     if (lockoutUntil && Date.now() < lockoutUntil) {
       return setError('Account locked for 3 minutes due to too many failed attempts.');
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(email.trim())) {
       return setError('Please enter a valid email address');
     }
 
-    // ── Direct test credentials shortcut ──
-    if (email.toLowerCase().trim() === 'john@gmail.com' && password === 'John1234') {
-      try {
-        const response = await axios.post('http://localhost:5000/api/auth/login', {
-          email, password
-        });
-        if (response.data.success) {
-          setAttempts(0);
-          const token = response.data.token || response.data.accessToken || 'test-member-token-12345';
-          localStorage.setItem('token', token);
-          navigate('/portal/dashboard');
-          return;
-        }
-      } catch {
-        // Fallback for offline test
-        setAttempts(0);
-        localStorage.setItem('token', 'test-member-jwt-token-john');
-        navigate('/portal/dashboard');
-        return;
-      }
+    if (!password) {
+      return setError('Please enter your password');
     }
 
+    setIsLoading(true);
     try {
       const response = await axios.post('http://localhost:5000/api/auth/login', {
-        email, password
+        email: email.trim(),
+        password,
       });
+
       if (response.data.success) {
         setAttempts(0);
         const token = response.data.token || response.data.accessToken;
         localStorage.setItem('token', token);
+        if (response.data.data?.member) {
+          localStorage.setItem('user', JSON.stringify(response.data.data.member));
+        } else if (response.data.member) {
+          localStorage.setItem('user', JSON.stringify(response.data.member));
+        }
         navigate('/portal/dashboard');
       }
     } catch (err) {
@@ -87,6 +79,8 @@ export default function Login() {
         const errMsg = err.response?.data?.message || `Failed to login. ${5 - newAttempts} attempts remaining.`;
         setError(errMsg);
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -96,22 +90,35 @@ export default function Login() {
         <h2>Member Login</h2>
         <p>Welcome back to KYU Red Cross</p>
 
-        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem', fontSize: '0.8125rem', color: '#475569' }}>
-          <strong>🧪 Test Member Login:</strong><br />
-          Email: <code style={{ background: '#edf2f7', padding: '1px 4px', borderRadius: '3px' }}>john@gmail.com</code><br />
-          Password: <code style={{ background: '#edf2f7', padding: '1px 4px', borderRadius: '3px' }}>John1234</code>
-        </div>
-
         <form onSubmit={handleLogin} className="auth-form">
-          {error && <p className="error-message" style={{color: 'red', fontSize: '0.875rem'}}>{error}</p>}
+          {error && <p className="error-message" style={{ color: 'red', fontSize: '0.875rem' }}>{error}</p>}
           <div className="form-group">
             <label>Email Address</label>
-            <input type="email" required placeholder="Enter your email" value={email} onChange={e => setEmail(e.target.value)} />
+            <input
+              type="email"
+              required
+              placeholder="Enter your email"
+              value={email}
+              onChange={(e) => { setEmail(e.target.value); setError(''); }}
+              disabled={isLoading || !!lockoutUntil}
+            />
           </div>
           <div className="form-group">
-            <label>Password</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ margin: 0 }}>Password</label>
+              <Link to="/forgot-password" style={{ fontSize: '0.8rem', color: 'var(--red-600, #dc2626)', textDecoration: 'none' }}>
+                Forgot password?
+              </Link>
+            </div>
             <div className="password-input-wrapper">
-              <input type={showPassword ? "text" : "password"} required placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)} disabled={!!lockoutUntil} />
+              <input
+                type={showPassword ? "text" : "password"}
+                required
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setError(''); }}
+                disabled={isLoading || !!lockoutUntil}
+              />
               {showPassword ? (
                 <EyeOff className="password-toggle-icon" size={20} onClick={() => setShowPassword(false)} />
               ) : (
@@ -119,7 +126,9 @@ export default function Login() {
               )}
             </div>
           </div>
-          <button type="submit" className="button button-red" disabled={!!lockoutUntil}>Login to Portal</button>
+          <button type="submit" className="button button-red" disabled={isLoading || !!lockoutUntil}>
+            {isLoading ? 'Logging in...' : 'Login to Portal'}
+          </button>
         </form>
         <p className="auth-footer">
           Don't have an account? <Link to="/register">Register here</Link>
