@@ -120,7 +120,7 @@ export default function Dashboard() {
   // Current logged in user
   const currentUser = useMemo(() => {
     try {
-      const stored = localStorage.getItem('user');
+      const stored = sessionStorage.getItem('user') || localStorage.getItem('user');
       return stored ? JSON.parse(stored) : { name: 'Member User', email: 'member@kyu.ac.ke', role: 'Member' };
     } catch {
       return { name: 'Member User', email: 'member@kyu.ac.ke', role: 'Member' };

@@ -92,12 +92,23 @@ export default function PortalLayout() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   
+  const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes in ms
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
+    sessionStorage.removeItem('portal_last_activity');
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
+  };
+
   const [user, setUser] = useState(() => {
     try {
-      const stored = localStorage.getItem('user');
-      return stored ? JSON.parse(stored) : { name: 'John Doe', email: 'john@gmail.com', role: 'Member' };
+      const stored = sessionStorage.getItem('user') || localStorage.getItem('user');
+      return stored ? JSON.parse(stored) : { name: 'Member User', email: 'member@kyu.ac.ke', role: 'Member' };
     } catch {
-      return { name: 'John Doe', email: 'john@gmail.com', role: 'Member' };
+      return { name: 'Member User', email: 'member@kyu.ac.ke', role: 'Member' };
     }
   });
 
@@ -106,8 +117,57 @@ export default function PortalLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // 30-Minute Inactivity Auto-Logout & Session Verification
   useEffect(() => {
-    // Fetch real messages for notifications
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+    if (!token) {
+      handleLogout();
+      return;
+    }
+
+    const checkInactivity = () => {
+      const lastActivityStr = sessionStorage.getItem('portal_last_activity');
+      if (lastActivityStr) {
+        const elapsed = Date.now() - parseInt(lastActivityStr, 10);
+        if (elapsed >= INACTIVITY_LIMIT) {
+          handleLogout();
+        }
+      } else {
+        sessionStorage.setItem('portal_last_activity', Date.now().toString());
+      }
+    };
+
+    checkInactivity();
+
+    let lastRecorded = 0;
+    const updateActivity = () => {
+      const now = Date.now();
+      if (now - lastRecorded > 2000) {
+        lastRecorded = now;
+        sessionStorage.setItem('portal_last_activity', now.toString());
+      }
+    };
+
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
+    activityEvents.forEach(evt => window.addEventListener(evt, updateActivity, { passive: true }));
+
+    const timer = setInterval(checkInactivity, 10000);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        checkInactivity();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      activityEvents.forEach(evt => window.removeEventListener(evt, updateActivity));
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
     const fetchNotifs = () => {
       axios.get(`${API_BASE}/messages`)
         .then(res => {
@@ -156,7 +216,6 @@ export default function PortalLayout() {
     return () => clearInterval(interval);
   }, []);
 
-  // Close dropdowns on outside click
   useEffect(() => {
     function handleClickOutside(e) {
       if (profileRef.current && !profileRef.current.contains(e.target)) {
@@ -170,7 +229,6 @@ export default function PortalLayout() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Close sidebar on Escape key
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && sidebarOpen) {
@@ -183,12 +241,6 @@ export default function PortalLayout() {
 
   const toggleSidebar = () => setSidebarOpen(prev => !prev);
   const closeSidebar = () => setSidebarOpen(false);
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/login');
-  };
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 

@@ -221,7 +221,7 @@ export default function PortalEvents() {
   // Get current logged-in member
   const currentUser = useMemo(() => {
     try {
-      const stored = localStorage.getItem('user');
+      const stored = sessionStorage.getItem('user') || localStorage.getItem('user');
       return stored ? JSON.parse(stored) : { name: 'Member User', email: 'member@student.ku.ac.ke' };
     } catch {
       return { name: 'Member User', email: 'member@student.ku.ac.ke' };

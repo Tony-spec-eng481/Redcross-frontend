@@ -62,12 +62,14 @@ export default function Login() {
       if (response.data.success) {
         setAttempts(0);
         const token = response.data.token || response.data.accessToken;
-        localStorage.setItem('token', token);
-        if (response.data.data?.member) {
-          localStorage.setItem('user', JSON.stringify(response.data.data.member));
-        } else if (response.data.member) {
-          localStorage.setItem('user', JSON.stringify(response.data.member));
+        sessionStorage.setItem('token', token);
+        localStorage.removeItem('token');
+        const memberData = response.data.data?.member || response.data.member;
+        if (memberData) {
+          sessionStorage.setItem('user', JSON.stringify(memberData));
+          localStorage.removeItem('user');
         }
+        sessionStorage.setItem('portal_last_activity', Date.now().toString());
         navigate('/portal/dashboard');
       }
     } catch (err) {

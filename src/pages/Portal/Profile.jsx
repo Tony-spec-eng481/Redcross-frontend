@@ -5,7 +5,7 @@ import { API_BASE } from '../../config';
 export default function Profile() {
   const [user, setUser] = useState(() => {
     try {
-      const stored = localStorage.getItem('user');
+      const stored = sessionStorage.getItem('user') || localStorage.getItem('user');
       return stored ? JSON.parse(stored) : { name: '', email: '', phone: '', role: 'Member' };
     } catch {
       return { name: '', email: '', phone: '', role: 'Member' };
@@ -24,7 +24,7 @@ export default function Profile() {
   const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
     if (!token) return;
 
     axios
@@ -34,7 +34,7 @@ export default function Profile() {
       .then((res) => {
         if (res.data.success && res.data.data) {
           setUser(res.data.data);
-          localStorage.setItem('user', JSON.stringify(res.data.data));
+          sessionStorage.setItem('user', JSON.stringify(res.data.data));
         }
       })
       .catch((err) => {
@@ -48,7 +48,7 @@ export default function Profile() {
     setUpdatingProfile(true);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
       const res = await axios.put(
         `${API_BASE}/auth/profile`,
         {
@@ -62,7 +62,7 @@ export default function Profile() {
         setProfileMsg({ type: 'success', text: 'Profile updated successfully!' });
         if (res.data.data) {
           setUser(res.data.data);
-          localStorage.setItem('user', JSON.stringify(res.data.data));
+          sessionStorage.setItem('user', JSON.stringify(res.data.data));
         }
       } else {
         setProfileMsg({ type: 'error', text: res.data.message || 'Failed to update profile.' });
@@ -99,7 +99,7 @@ export default function Profile() {
     setChangingPassword(true);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
       const res = await axios.post(
         `${API_BASE}/auth/change-password`,
         {

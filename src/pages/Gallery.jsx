@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
 import { API_BASE } from '../config';
-import { SectionHeading, gallery as fallbackGallery, imageUrl } from '../data';
+import { SectionHeading } from '../data';
 
 export default function Gallery() {
   const [galleryFilter, setGalleryFilter] = useState('All');
   const [gallery, setGallery] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [usingFallback, setUsingFallback] = useState(false);
 
   useEffect(() => {
     const fetchGallery = async () => {
@@ -14,30 +13,10 @@ export default function Gallery() {
         const res = await fetch(`${API_BASE}/gallery`);
         const data = await res.json();
         const items = Array.isArray(data) ? data : (data?.data || []);
-        if (items.length > 0) {
-          setGallery(items);
-        } else {
-          // If no items from backend, use fallback data
-          setGallery(fallbackGallery.map(([title, category, image]) => ({
-            id: title,
-            title,
-            category,
-            image_url: imageUrl(image),
-            url: imageUrl(image),
-          })));
-          setUsingFallback(true);
-        }
+        setGallery(items);
       } catch (err) {
         console.error('Error fetching gallery:', err);
-        // Fallback to hardcoded data
-        setGallery(fallbackGallery.map(([title, category, image]) => ({
-          id: title,
-          title,
-          category,
-          image_url: imageUrl(image),
-          url: imageUrl(image),
-        })));
-        setUsingFallback(true);
+        setGallery([]);
       } finally {
         setLoading(false);
       }

@@ -9,7 +9,7 @@ const CATEGORIES = ['General', 'Team', 'Outreach', 'Events', 'Training', 'Commun
 export default function PortalGallery() {
   const [user] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem('user')) || {};
+      return JSON.parse(sessionStorage.getItem('user') || localStorage.getItem('user')) || {};
     } catch { return {}; }
   });
 
@@ -38,7 +38,7 @@ export default function PortalGallery() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const token = localStorage.getItem('token');
+  const token = sessionStorage.getItem('token') || localStorage.getItem('token');
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
   const fetchGallery = useCallback(async () => {
