@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE, BACKEND_URL } from '../config';
 import { SectionHeading, leaders as defaultLeaders, imageUrl } from '../data';
 
 // Helper to resolve image URL for both uploaded Supabase assets and static assets
@@ -20,10 +21,8 @@ export default function Team() {
     const fetchLeaders = async () => {
       try {
         const endpoints = [
-          'http://localhost:5000/api/v1/leaders?status=active',
-          '/api/v1/leaders?status=active',
-          'http://localhost:5000/api/leaders?status=active',
-          '/api/leaders?status=active'
+          `${API_BASE}/leaders?status=active`,
+          `${BACKEND_URL}/api/leaders?status=active`
         ];
 
         let fetchedData = null;

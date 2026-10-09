@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
+import { API_BASE, BACKEND_URL } from '../config';
 import './Portal.css';
 
 const menuItems = [
@@ -41,6 +42,16 @@ const menuItems = [
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M12 2v20M2 12h20"/>
+      </svg>
+    )
+  },
+  {
+    to: '/portal/dissemination',
+    label: 'Dissemination',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
       </svg>
     )
   },
@@ -96,22 +107,53 @@ export default function PortalLayout() {
   const location = useLocation();
 
   useEffect(() => {
-    // Attempt fetching notifications if backend endpoint exists
-    axios.get('http://localhost:5000/api/notifications')
-      .then(res => {
-        if (Array.isArray(res.data)) {
-          setNotifications(res.data);
-        } else if (res.data.success && Array.isArray(res.data.data)) {
-          setNotifications(res.data.data);
-        }
-      })
-      .catch(() => {
-        // Fallback demo notifications
-        setNotifications([
-          { id: 1, text: 'Welcome to the Red Cross Member Portal!', created_at: new Date().toISOString(), is_read: false },
-          { id: 2, text: 'New First Aid training scheduled for Saturday.', created_at: new Date().toISOString(), is_read: false }
-        ]);
-      });
+    // Fetch real messages for notifications
+    const fetchNotifs = () => {
+      axios.get(`${API_BASE}/messages`)
+        .then(res => {
+          const raw = Array.isArray(res.data) ? res.data : res.data?.data || [];
+          if (Array.isArray(raw) && raw.length > 0) {
+            const formatted = raw.map(m => ({
+              id: m.id,
+              text: m.is_broadcast
+                ? `📢 Announcement: ${m.subject || m.text}`
+                : `💬 Message from ${m.sender_name || 'Coordinator'}: ${m.text}`,
+              created_at: m.created_at,
+              is_read: m.is_read !== false,
+              link: '/portal/messages'
+            }));
+            setNotifications(formatted);
+          }
+        })
+        .catch(() => {
+          axios.get(`${BACKEND_URL}/api/messages`)
+            .then(res2 => {
+              const raw2 = Array.isArray(res2.data) ? res2.data : res2.data?.data || [];
+              if (Array.isArray(raw2) && raw2.length > 0) {
+                const formatted = raw2.map(m => ({
+                  id: m.id,
+                  text: m.is_broadcast
+                    ? `📢 Announcement: ${m.subject || m.text}`
+                    : `💬 Message from ${m.sender_name || 'Coordinator'}: ${m.text}`,
+                  created_at: m.created_at,
+                  is_read: m.is_read !== false,
+                  link: '/portal/messages'
+                }));
+                setNotifications(formatted);
+              }
+            })
+            .catch(() => {
+              setNotifications([
+                { id: 1, text: 'Welcome to the Red Cross Member Portal!', created_at: new Date().toISOString(), is_read: false, link: '/portal/messages' },
+                { id: 2, text: 'New First Aid training scheduled for Saturday.', created_at: new Date().toISOString(), is_read: false, link: '/portal/firstaid' }
+              ]);
+            });
+        });
+    };
+
+    fetchNotifs();
+    const interval = setInterval(fetchNotifs, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   // Close dropdowns on outside click
@@ -157,9 +199,7 @@ export default function PortalLayout() {
   const handleNotificationClick = (notif) => {
     setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
     setShowNotifications(false);
-    if (notif.link) {
-      navigate(notif.link);
-    }
+    navigate(notif.link || '/portal/messages');
   };
 
   const formatTime = (dateStr) => {

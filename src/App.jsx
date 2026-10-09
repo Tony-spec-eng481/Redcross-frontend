@@ -19,6 +19,7 @@ import Dashboard from './pages/Portal/Dashboard';
 import PortalGallery from './pages/Portal/Gallery';
 import PortalEvents from './pages/Portal/Events';
 import FirstAid from './pages/Portal/FirstAid';
+import Dissemination from './pages/Portal/Dissemination';
 import Messages from './pages/Portal/Messages';
 import Profile from './pages/Portal/Profile';
 import Settings from './pages/Portal/Settings';
@@ -53,6 +54,7 @@ function App() {
           <Route path="gallery" element={<PortalGallery />} />
           <Route path="events" element={<PortalEvents />} />
           <Route path="firstaid" element={<FirstAid />} />
+          <Route path="dissemination" element={<Dissemination />} />
           <Route path="messages" element={<Messages />} />
           <Route path="profile" element={<Profile />} />
           <Route path="settings" element={<Settings />} />

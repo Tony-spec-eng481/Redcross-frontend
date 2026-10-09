@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
+import { API_BASE, BACKEND_URL } from '../../config';
 import './Events.css';
 import {
   Calendar,
@@ -16,7 +17,10 @@ import {
   XCircle,
   Tag,
   Info,
-  Layers
+  Layers,
+  UploadCloud,
+  Link,
+  Loader2
 } from 'lucide-react';
 
 const CATEGORIES = [
@@ -59,11 +63,14 @@ export default function PortalEvents() {
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
 
-  // Modals
+  // Modals & Form state
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(INITIAL_FORM);
   const [deletingId, setDeletingId] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [uploading, setUploading] = useState(false);
+  const [imageTab, setImageTab] = useState('upload'); // 'upload' | 'link'
 
   // Toast
   const [toast, setToast] = useState(null);
@@ -71,6 +78,144 @@ export default function PortalEvents() {
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  // Field Level Validation
+  const validateField = (name, value) => {
+    let errorMsg = '';
+    switch (name) {
+      case 'title':
+        if (!value.trim()) {
+          errorMsg = 'Event title is required.';
+        } else if (value.trim().length < 3) {
+          errorMsg = 'Title must be at least 3 characters long.';
+        }
+        break;
+      case 'category':
+        if (!value) {
+          errorMsg = 'Please select a category.';
+        }
+        break;
+      case 'date':
+        if (!value) {
+          errorMsg = 'Event date is required.';
+        }
+        break;
+      case 'time':
+        if (!value) {
+          errorMsg = 'Start time is required.';
+        }
+        break;
+      case 'location':
+        if (!value.trim()) {
+          errorMsg = 'Venue / Location is required.';
+        }
+        break;
+      case 'description':
+        if (!value.trim()) {
+          errorMsg = 'Event description & objectives are required.';
+        } else if (value.trim().length < 10) {
+          errorMsg = 'Description must be at least 10 characters.';
+        }
+        break;
+      case 'image_url':
+        if (value && value.trim() && !value.startsWith('http://') && !value.startsWith('https://') && !value.startsWith('/') && !value.startsWith('data:')) {
+          errorMsg = 'Please enter a valid URL (starting with http:// or https://).';
+        }
+        break;
+      default:
+        break;
+    }
+
+    setErrors(prev => {
+      const copy = { ...prev };
+      if (errorMsg) copy[name] = errorMsg;
+      else delete copy[name];
+      return copy;
+    });
+    return !errorMsg;
+  };
+
+  const validateAll = () => {
+    const newErrors = {};
+    if (!form.title.trim()) {
+      newErrors.title = 'Event title is required.';
+    } else if (form.title.trim().length < 3) {
+      newErrors.title = 'Title must be at least 3 characters long.';
+    }
+
+    if (!form.category) {
+      newErrors.category = 'Please select an event category.';
+    }
+
+    if (!form.date) {
+      newErrors.date = 'Proposed event date is required.';
+    }
+
+    if (!form.time) {
+      newErrors.time = 'Start time is required.';
+    }
+
+    if (!form.location.trim()) {
+      newErrors.location = 'Venue / Location is required.';
+    }
+
+    if (!form.description.trim()) {
+      newErrors.description = 'Event description & objectives are required.';
+    } else if (form.description.trim().length < 10) {
+      newErrors.description = 'Description must be at least 10 characters long.';
+    }
+
+    if (form.image_url && form.image_url.trim() && !form.image_url.startsWith('http://') && !form.image_url.startsWith('https://') && !form.image_url.startsWith('/') && !form.image_url.startsWith('data:')) {
+      newErrors.image_url = 'Please enter a valid URL (starting with http:// or https://).';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // Image File Upload Handler
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setErrors(prev => ({ ...prev, image_url: 'Please select a valid image file (PNG, JPG, WEBP, etc).' }));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setErrors(prev => ({ ...prev, image_url: 'Image file size should be less than 5MB.' }));
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('folder', 'events');
+    setUploading(true);
+    setErrors(prev => {
+      const copy = { ...prev };
+      delete copy.image_url;
+      return copy;
+    });
+
+    try {
+      const res = await axios.post(`${API_BASE}/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const url = res.data?.data?.url || res.data?.url;
+      if (url) {
+        setForm(prev => ({ ...prev, image_url: url }));
+        showToast('Image uploaded successfully!');
+      } else {
+        throw new Error('No URL returned from server.');
+      }
+    } catch (err) {
+      console.error('Upload error:', err);
+      setErrors(prev => ({ ...prev, image_url: 'Failed to upload image. Please try again or paste a link.' }));
+      showToast('Failed to upload image.', 'error');
+    } finally {
+      setUploading(false);
+    }
   };
 
   // Get current logged-in member
@@ -86,12 +231,12 @@ export default function PortalEvents() {
   // Fetch Approved Events
   const fetchApprovedEvents = useCallback(async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/v1/events');
+      const res = await axios.get(`${API_BASE}/events`);
       const data = Array.isArray(res.data) ? res.data : res.data?.data;
       if (Array.isArray(data)) setApprovedEvents(data);
     } catch {
       try {
-        const res2 = await axios.get('http://localhost:5000/api/events');
+        const res2 = await axios.get(`${BACKEND_URL}/api/events`);
         const data2 = Array.isArray(res2.data) ? res2.data : res2.data?.data;
         if (Array.isArray(data2)) setApprovedEvents(data2);
       } catch (err) {
@@ -106,14 +251,14 @@ export default function PortalEvents() {
     try {
       const email = currentUser.email || '';
       const name = currentUser.name || '';
-      const res = await axios.get(`http://localhost:5000/api/v1/events/my?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`);
+      const res = await axios.get(`${API_BASE}/events/my?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`);
       const data = Array.isArray(res.data) ? res.data : res.data?.data;
       if (Array.isArray(data)) setMyEvents(data);
     } catch {
       try {
         const email = currentUser.email || '';
         const name = currentUser.name || '';
-        const res2 = await axios.get(`http://localhost:5000/api/events/my?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`);
+        const res2 = await axios.get(`${BACKEND_URL}/api/events/my?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`);
         const data2 = Array.isArray(res2.data) ? res2.data : res2.data?.data;
         if (Array.isArray(data2)) setMyEvents(data2);
       } catch (err) {
@@ -152,11 +297,14 @@ export default function PortalEvents() {
   const openCreateModal = () => {
     setEditingId(null);
     setForm(INITIAL_FORM);
+    setErrors({});
+    setImageTab('upload');
     setShowModal(true);
   };
 
   const openEditModal = (ev) => {
     setEditingId(ev.id);
+    const imgUrl = ev.image_url || '';
     setForm({
       title: ev.title || '',
       category: ev.category || 'General',
@@ -164,15 +312,17 @@ export default function PortalEvents() {
       time: ev.time || '09:00',
       location: ev.location || '',
       description: ev.description || '',
-      image_url: ev.image_url || ''
+      image_url: imgUrl
     });
+    setErrors({});
+    setImageTab(imgUrl ? 'link' : 'upload');
     setShowModal(true);
   };
 
   const handleSaveProposal = async (e) => {
     e?.preventDefault();
-    if (!form.title.trim()) {
-      showToast('Event title is required.', 'error');
+    if (!validateAll()) {
+      showToast('Please fix the highlighted errors before submitting.', 'error');
       return;
     }
 
@@ -186,10 +336,10 @@ export default function PortalEvents() {
 
     try {
       if (editingId) {
-        await axios.patch(`http://localhost:5000/api/v1/events/${editingId}`, payload);
+        await axios.patch(`${API_BASE}/events/${editingId}`, payload);
         showToast('Event updated and re-submitted for admin review.');
       } else {
-        await axios.post('http://localhost:5000/api/v1/events', payload);
+        await axios.post(`${API_BASE}/events`, payload);
         showToast('Event proposed successfully! An admin will review and approve it soon.');
         setActiveTab('my-events');
       }
@@ -206,7 +356,7 @@ export default function PortalEvents() {
   const confirmDeleteProposal = async () => {
     if (!deletingId) return;
     try {
-      await axios.delete(`http://localhost:5000/api/v1/events/${deletingId}`);
+      await axios.delete(`${API_BASE}/events/${deletingId}`);
       showToast('Event proposal removed.');
       setDeletingId(null);
       loadAll();
@@ -469,78 +619,223 @@ export default function PortalEvents() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveProposal} className="portal-modal-form">
-              <div className="portal-form-group">
-                <label>Event Title *</label>
+            <form onSubmit={handleSaveProposal} className="portal-modal-form" noValidate>
+              <div className={`portal-form-group ${errors.title ? 'has-error' : ''}`}>
+                <label htmlFor="event-title">Event Title *</label>
                 <input
+                  id="event-title"
                   type="text"
-                  required
                   placeholder="e.g. Peer First Aid Refresher Workshop"
                   value={form.title}
-                  onChange={e => setForm({ ...form, title: e.target.value })}
+                  onChange={e => {
+                    setForm({ ...form, title: e.target.value });
+                    validateField('title', e.target.value);
+                  }}
+                  className={errors.title ? 'input-error' : ''}
                 />
+                {errors.title && (
+                  <span className="field-error-msg">
+                    <AlertCircle size={13} />
+                    {errors.title}
+                  </span>
+                )}
               </div>
 
-              <div className="portal-form-group">
-                <label>Category</label>
+              <div className={`portal-form-group ${errors.category ? 'has-error' : ''}`}>
+                <label htmlFor="event-category">Category *</label>
                 <select
+                  id="event-category"
                   value={form.category}
-                  onChange={e => setForm({ ...form, category: e.target.value })}
+                  onChange={e => {
+                    setForm({ ...form, category: e.target.value });
+                    validateField('category', e.target.value);
+                  }}
+                  className={errors.category ? 'input-error' : ''}
                 >
+                  <option value="">-- Select a Category --</option>
                   {CATEGORIES.map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
+                {errors.category && (
+                  <span className="field-error-msg">
+                    <AlertCircle size={13} />
+                    {errors.category}
+                  </span>
+                )}
               </div>
 
               <div className="portal-form-grid">
-                <div className="portal-form-group">
-                  <label>Proposed Date</label>
+                <div className={`portal-form-group ${errors.date ? 'has-error' : ''}`}>
+                  <label htmlFor="event-date">Proposed Date *</label>
                   <input
+                    id="event-date"
                     type="date"
                     value={form.date}
-                    onChange={e => setForm({ ...form, date: e.target.value })}
+                    onChange={e => {
+                      setForm({ ...form, date: e.target.value });
+                      validateField('date', e.target.value);
+                    }}
+                    className={errors.date ? 'input-error' : ''}
                   />
+                  {errors.date && (
+                    <span className="field-error-msg">
+                      <AlertCircle size={13} />
+                      {errors.date}
+                    </span>
+                  )}
                 </div>
 
-                <div className="portal-form-group">
-                  <label>Start Time</label>
+                <div className={`portal-form-group ${errors.time ? 'has-error' : ''}`}>
+                  <label htmlFor="event-time">Start Time *</label>
                   <input
+                    id="event-time"
                     type="time"
                     value={form.time}
-                    onChange={e => setForm({ ...form, time: e.target.value })}
+                    onChange={e => {
+                      setForm({ ...form, time: e.target.value });
+                      validateField('time', e.target.value);
+                    }}
+                    className={errors.time ? 'input-error' : ''}
                   />
+                  {errors.time && (
+                    <span className="field-error-msg">
+                      <AlertCircle size={13} />
+                      {errors.time}
+                    </span>
+                  )}
                 </div>
               </div>
 
-              <div className="portal-form-group">
-                <label>Proposed Venue / Location</label>
+              <div className={`portal-form-group ${errors.location ? 'has-error' : ''}`}>
+                <label htmlFor="event-location">Proposed Venue / Location *</label>
                 <input
+                  id="event-location"
                   type="text"
                   placeholder="e.g. Science Complex Lab 2 / Hostel Common Room"
                   value={form.location}
-                  onChange={e => setForm({ ...form, location: e.target.value })}
+                  onChange={e => {
+                    setForm({ ...form, location: e.target.value });
+                    validateField('location', e.target.value);
+                  }}
+                  className={errors.location ? 'input-error' : ''}
                 />
+                {errors.location && (
+                  <span className="field-error-msg">
+                    <AlertCircle size={13} />
+                    {errors.location}
+                  </span>
+                )}
               </div>
 
-              <div className="portal-form-group">
-                <label>Banner Image URL (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="https://images.unsplash.com/..."
-                  value={form.image_url}
-                  onChange={e => setForm({ ...form, image_url: e.target.value })}
-                />
+              {/* Event Image Upload or Link Section */}
+              <div className={`portal-form-group ${errors.image_url ? 'has-error' : ''}`}>
+                <div className="image-section-header">
+                  <label>Event Image / Banner</label>
+                  <div className="image-input-tabs">
+                    <button
+                      type="button"
+                      className={`image-tab-btn ${imageTab === 'upload' ? 'active' : ''}`}
+                      onClick={() => setImageTab('upload')}
+                    >
+                      <UploadCloud size={13} />
+                      Upload File
+                    </button>
+                    <button
+                      type="button"
+                      className={`image-tab-btn ${imageTab === 'link' ? 'active' : ''}`}
+                      onClick={() => setImageTab('link')}
+                    >
+                      <Link size={13} />
+                      Paste URL
+                    </button>
+                  </div>
+                </div>
+
+                {imageTab === 'upload' ? (
+                  <div className="dropzone-container">
+                    <label htmlFor="event-file-upload" className={`dropzone-box ${uploading ? 'uploading' : ''}`}>
+                      {uploading ? (
+                        <>
+                          <Loader2 size={24} className="spin-loader" />
+                          <p>Uploading image to server...</p>
+                        </>
+                      ) : (
+                        <>
+                          <UploadCloud size={26} color="#dc2626" />
+                          <p><strong>Click to select an image file</strong> from your device</p>
+                          <span>Supports PNG, JPG, JPEG, WEBP (Max 5MB)</span>
+                        </>
+                      )}
+                    </label>
+                    <input
+                      id="event-file-upload"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      disabled={uploading}
+                      style={{ display: 'none' }}
+                    />
+                  </div>
+                ) : (
+                  <input
+                    id="event-image-url"
+                    type="text"
+                    placeholder="https://images.unsplash.com/..."
+                    value={form.image_url}
+                    onChange={e => {
+                      setForm({ ...form, image_url: e.target.value });
+                      validateField('image_url', e.target.value);
+                    }}
+                    className={errors.image_url ? 'input-error' : ''}
+                  />
+                )}
+
+                {/* Live Banner Image Preview */}
+                {form.image_url && (
+                  <div className="image-preview-wrapper">
+                    <img src={resolveEventImage(form.image_url)} alt="Banner Preview" />
+                    <button
+                      type="button"
+                      className="btn-remove-preview"
+                      title="Remove image"
+                      onClick={() => setForm({ ...form, image_url: '' })}
+                    >
+                      <X size={14} />
+                    </button>
+                    <span className="preview-tag">
+                      {form.image_url.startsWith('http') ? 'Image Preview' : 'Uploaded File'}
+                    </span>
+                  </div>
+                )}
+
+                {errors.image_url && (
+                  <span className="field-error-msg">
+                    <AlertCircle size={13} />
+                    {errors.image_url}
+                  </span>
+                )}
               </div>
 
-              <div className="portal-form-group">
-                <label>Event Description & Objectives</label>
+              <div className={`portal-form-group ${errors.description ? 'has-error' : ''}`}>
+                <label htmlFor="event-description">Event Description & Objectives *</label>
                 <textarea
+                  id="event-description"
                   rows={4}
                   placeholder="Describe what the event entails, intended participants, expected supplies or preparation needed..."
                   value={form.description}
-                  onChange={e => setForm({ ...form, description: e.target.value })}
+                  onChange={e => {
+                    setForm({ ...form, description: e.target.value });
+                    validateField('description', e.target.value);
+                  }}
+                  className={errors.description ? 'input-error' : ''}
                 />
+                {errors.description && (
+                  <span className="field-error-msg">
+                    <AlertCircle size={13} />
+                    {errors.description}
+                  </span>
+                )}
               </div>
 
               <div className="portal-modal-footer">
@@ -548,14 +843,14 @@ export default function PortalEvents() {
                   type="button"
                   className="btn-card-edit"
                   onClick={() => setShowModal(false)}
-                  disabled={saving}
+                  disabled={saving || uploading}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   className="btn-propose-event"
-                  disabled={saving}
+                  disabled={saving || uploading}
                 >
                   {saving ? 'Submitting...' : editingId ? 'Update Proposal' : 'Submit for Admin Approval'}
                 </button>

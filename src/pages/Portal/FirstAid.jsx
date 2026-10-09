@@ -1,17 +1,21 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_BASE, BACKEND_URL } from '../../config';
 
 export default function FirstAid() {
   const [data, setData] = useState([]);
   const [question, setQuestion] = useState('');
 
   useEffect(() => {
-    axios.get('http://localhost:5000/api/firstaid').then(res => setData(res.data));
+    axios.get(`${API_BASE}/firstaid`)
+      .catch(() => axios.get(`${BACKEND_URL}/api/firstaid`))
+      .then(res => res && setData(res.data));
   }, []);
 
   const handleAsk = async (e) => {
     e.preventDefault();
-    await axios.post('http://localhost:5000/api/firstaid/questions', { text: question });
+    await axios.post(`${API_BASE}/firstaid/questions`, { text: question })
+      .catch(() => axios.post(`${BACKEND_URL}/api/firstaid/questions`, { text: question }));
     alert('Question submitted!');
     setQuestion('');
   };

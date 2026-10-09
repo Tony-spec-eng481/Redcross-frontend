@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_BASE, BACKEND_URL } from '../config';
 import { SectionHeading, events as defaultEvents } from '../data';
 
 const parseEventDate = (dateStr) => {
@@ -45,7 +46,7 @@ export default function Events() {
     const fetchApprovedEvents = async () => {
       try {
         // Try v1 API first, then fallback
-        const res = await axios.get('http://localhost:5000/api/v1/events');
+        const res = await axios.get(`${API_BASE}/events`);
         const rawData = Array.isArray(res.data) ? res.data : res.data?.data;
         
         if (isMounted && Array.isArray(rawData) && rawData.length > 0) {
@@ -70,7 +71,7 @@ export default function Events() {
       } catch {
         // Try fallback legacy /api/events route
         try {
-          const res2 = await axios.get('http://localhost:5000/api/events');
+          const res2 = await axios.get(`${BACKEND_URL}/api/events`);
           const rawData2 = Array.isArray(res2.data) ? res2.data : res2.data?.data;
           if (isMounted && Array.isArray(rawData2) && rawData2.length > 0) {
             const transformed = rawData2.map(ev => {

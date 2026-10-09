@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
+import { API_BASE } from '../config';
 import { slides as defaultSlides } from '../data';
 import About from './About';
 import Programs from './Programs';
@@ -17,7 +18,7 @@ export default function Home() {
   useEffect(() => {
     const fetchSlides = async () => {
       try {
-        const res = await axios.get('http://localhost:5000/api/v1/hero');
+        const res = await axios.get(`${API_BASE}/hero`);
         if (res.data?.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
           const activeSlides = res.data.data.filter((s) => s.status !== 'inactive');
           if (activeSlides.length > 0) {

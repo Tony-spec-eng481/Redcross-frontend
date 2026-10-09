@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { BACKEND_URL, API_BASE } from '../../config';
 import './Messages.css';
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 /**
  * Helper to extract email from strings like "Jane Doe (jane@example.com)"
@@ -116,6 +115,7 @@ export default function Messages() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState('all'); // 'all', 'direct', 'broadcast', 'unread'
   const [feedback, setFeedback] = useState('');
 
   // Members Directory Modal state
@@ -123,6 +123,12 @@ export default function Messages() {
   const [directoryUsers, setDirectoryUsers] = useState([]);
   const [directorySearch, setDirectorySearch] = useState('');
   const [loadingDirectory, setLoadingDirectory] = useState(false);
+
+  // Broadcast Modal state
+  const [showBroadcastModal, setShowBroadcastModal] = useState(false);
+  const [broadcastText, setBroadcastText] = useState('');
+  const [broadcastSubject, setBroadcastSubject] = useState('');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
   const chatEndRef = useRef(null);
 
@@ -138,25 +144,40 @@ export default function Messages() {
 
   const fetchMessages = () => {
     axios
-      .get(`${BACKEND_URL}/api/messages`)
+      .get(`${BACKEND_URL}/api/v1/messages`)
       .then((res) => {
         const fetched = Array.isArray(res.data) ? res.data : (res.data.data || []);
         setMessages(fetched);
       })
-      .catch((err) => console.error('Failed to fetch messages:', err))
+      .catch(() => {
+        axios.get(`${BACKEND_URL}/api/messages`)
+          .then((res2) => {
+            const fetched = Array.isArray(res2.data) ? res2.data : (res2.data.data || []);
+            setMessages(fetched);
+          })
+          .catch((err) => console.error('Failed to fetch messages:', err));
+      })
       .finally(() => setLoading(false));
   };
 
   const fetchDirectory = () => {
     setLoadingDirectory(true);
     axios
-      .get(`${BACKEND_URL}/api/messages/users`)
+      .get(`${BACKEND_URL}/api/v1/messages/users`)
       .then((res) => {
         if (res.data.success) {
           setDirectoryUsers(res.data.data || []);
         }
       })
-      .catch((err) => console.error('Failed to fetch directory:', err))
+      .catch(() => {
+        axios.get(`${BACKEND_URL}/api/messages/users`)
+          .then((res2) => {
+            if (res2.data.success) {
+              setDirectoryUsers(res2.data.data || []);
+            }
+          })
+          .catch((err) => console.error('Failed to fetch directory:', err));
+      })
       .finally(() => setLoadingDirectory(false));
   };
 
@@ -212,7 +233,7 @@ export default function Messages() {
         isDraft: true,
         partnerName: user.name,
         partnerEmail: user.email,
-        subject: `Chat with ${user.name}`,
+        subject: `Direct Chat with ${user.name}`,
         lastMessage: 'Type your message below...',
         lastMessageTime: new Date().toISOString(),
         is_read: true,
@@ -228,6 +249,15 @@ export default function Messages() {
     setSelectedConvId(conv.id);
     if (draftConversation && draftConversation.id !== conv.id) {
       setDraftConversation(null);
+    }
+
+    // Mark unread messages in conversation as read locally
+    const unreadMsgs = conv.messages?.filter(m => !m.is_read) || [];
+    if (unreadMsgs.length > 0) {
+      unreadMsgs.forEach(m => {
+        axios.patch(`${BACKEND_URL}/api/v1/messages/${m.id}/read`).catch(() => {});
+      });
+      setMessages(prev => prev.map(m => unreadMsgs.some(u => u.id === m.id) ? { ...m, is_read: true } : m));
     }
   };
 
@@ -254,9 +284,14 @@ export default function Messages() {
         is_broadcast: false,
       };
 
-      const res = await axios.post(`${BACKEND_URL}/api/messages`, payload);
+      let res;
+      try {
+        res = await axios.post(`${BACKEND_URL}/api/v1/messages`, payload);
+      } catch {
+        res = await axios.post(`${BACKEND_URL}/api/messages`, payload);
+      }
 
-      if (res.data.success || res.status === 200 || res.status === 201) {
+      if (res?.data?.success || res?.status === 200 || res?.status === 201) {
         setText('');
         setFeedback(
           targetEmail
@@ -278,6 +313,54 @@ export default function Messages() {
     }
   };
 
+  const handleSendBroadcast = async () => {
+    if (!broadcastText.trim()) return;
+    setSendingBroadcast(true);
+    try {
+      const payload = {
+        text: broadcastText.trim(),
+        subject: broadcastSubject.trim() || 'Member Chapter Announcement',
+        sender_name: currentUser.name || 'Member',
+        sender_email: currentUser.email || 'member@kyu.ac.ke',
+        is_broadcast: true,
+      };
+      try {
+        await axios.post(`${BACKEND_URL}/api/v1/messages`, payload);
+      } catch {
+        await axios.post(`${BACKEND_URL}/api/messages`, payload);
+      }
+      setShowBroadcastModal(false);
+      setBroadcastText('');
+      setBroadcastSubject('');
+      fetchMessages();
+      alert('Broadcast announcement dispatched successfully!');
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to dispatch broadcast');
+    } finally {
+      setSendingBroadcast(false);
+    }
+  };
+
+  const handleDeleteConversation = async (conv, e) => {
+    if (e) e.stopPropagation();
+    if (window.confirm(`Delete conversation with ${conv.partnerName}?`)) {
+      try {
+        const msgIds = conv.messages.map(m => m.id);
+        for (const id of msgIds) {
+          await axios.delete(`${BACKEND_URL}/api/v1/messages/${id}`).catch(() => {
+            return axios.delete(`${BACKEND_URL}/api/messages/${id}`).catch(() => {});
+          });
+        }
+        setMessages(prev => prev.filter(m => !msgIds.includes(m.id)));
+        if (selectedConvId === conv.id) {
+          setSelectedConvId(null);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
   const getInitials = (name) => {
     if (!name) return 'RC';
     const clean = name.replace(/\([^)]*\)/g, '').trim();
@@ -288,6 +371,10 @@ export default function Messages() {
 
   // Filter conversations
   const filteredConversations = allConversations.filter((c) => {
+    if (filter === 'unread' && (c.is_read || c.unreadCount === 0)) return false;
+    if (filter === 'broadcast' && !c.is_broadcast) return false;
+    if (filter === 'direct' && c.is_broadcast) return false;
+
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -297,6 +384,8 @@ export default function Messages() {
       c.lastMessage?.toLowerCase().includes(q)
     );
   });
+
+  const totalUnread = conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
 
   // Filter directory
   const filteredDirectory = directoryUsers.filter((u) => {
@@ -313,188 +402,266 @@ export default function Messages() {
     <div className="portal-messages-page">
       <div className="portal-messages-header">
         <div>
-          <h2>Member Communications & Chat</h2>
-          <p>Connect directly with chapter leaders, admins, and fellow volunteers</p>
+          <h2>Messages & Communications</h2>
+          <p>Unified conversation threads with live chat and automatic email notifications</p>
         </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            className="button button-red"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+            onClick={handleOpenDirectory}
+          >
+            <span>👥</span> Choose Member to Chat
+          </button>
+          <button
+            className="button button-outline"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+            onClick={() => setShowBroadcastModal(true)}
+          >
+            <span>📢</span> New Broadcast
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
         <button
-          className="button button-red"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-          onClick={handleOpenDirectory}
+          className={filter === 'all' ? 'button button-red' : 'button button-outline'}
+          style={{ padding: '6px 14px', fontSize: '13px' }}
+          onClick={() => setFilter('all')}
         >
-          <span>👥</span> Choose Member to Chat
+          All Chats ({conversations.length})
+        </button>
+        <button
+          className={filter === 'direct' ? 'button button-red' : 'button button-outline'}
+          style={{ padding: '6px 14px', fontSize: '13px' }}
+          onClick={() => setFilter('direct')}
+        >
+          Direct & Inquiries ({conversations.filter(c => !c.is_broadcast).length})
+        </button>
+        <button
+          className={filter === 'broadcast' ? 'button button-red' : 'button button-outline'}
+          style={{ padding: '6px 14px', fontSize: '13px' }}
+          onClick={() => setFilter('broadcast')}
+        >
+          Broadcasts ({conversations.filter(c => c.is_broadcast).length})
+        </button>
+        <button
+          className={filter === 'unread' ? 'button button-red' : 'button button-outline'}
+          style={{ padding: '6px 14px', fontSize: '13px' }}
+          onClick={() => setFilter('unread')}
+        >
+          Unread ({totalUnread})
         </button>
       </div>
 
-      <div className="portal-messages-layout">
-        {/* Left Side: WhatsApp-style single conversation list */}
-        <div className="portal-conversations-card">
-          <div className="conversations-header">
-            <h3>Chats ({conversations.length})</h3>
-            <button
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}
-              onClick={handleOpenDirectory}
-              title="New Chat / Member Directory"
-            >
-              ➕
-            </button>
-          </div>
-
-          <div className="conversations-search">
-            <input
-              type="text"
-              placeholder="Search chats..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-
-          <div className="conversations-list">
-            {loading ? (
-              <div style={{ padding: '1.5rem', textAlign: 'center', color: '#9ca3af' }}>
-                Loading conversations...
-              </div>
-            ) : filteredConversations.length === 0 ? (
-              <div style={{ padding: '2rem 1rem', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
-                No chats found. Click <strong>"Choose Member to Chat"</strong> to start a conversation!
-              </div>
-            ) : (
-              filteredConversations.map((conv) => {
-                const isActive = activeConversation?.id === conv.id;
-
-                return (
-                  <div
-                    key={conv.id}
-                    className={`conv-item ${isActive ? 'active' : ''}`}
-                    onClick={() => handleSelectConversation(conv)}
-                  >
-                    <div className={`conv-avatar ${conv.is_broadcast ? 'broadcast' : ''}`}>
-                      {conv.is_broadcast ? '📢' : getInitials(conv.partnerName)}
-                    </div>
-                    <div className="conv-info">
-                      <div className="conv-top">
-                        <span className="conv-name">{conv.partnerName}</span>
-                        <span className="conv-time">
-                          {new Date(conv.lastMessageTime).toLocaleDateString('en-KE', { month: 'short', day: 'numeric' })}
-                        </span>
-                      </div>
-                      <div className="conv-subject">
-                        {conv.is_broadcast ? '📢 ' : ''}
-                        {conv.subject}
-                      </div>
-                      <div className="conv-preview">{conv.lastMessage}</div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>Loading conversations...</div>
+      ) : allConversations.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '3rem', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>📬</div>
+          <h3>No Conversations Yet</h3>
+          <p style={{ color: '#64748B', marginTop: '0.5rem', marginBottom: '1.5rem' }}>
+            Start a direct chat with any coordinator or member, or view broadcast announcements.
+          </p>
+          <button className="button button-red" onClick={handleOpenDirectory}>
+            👥 Choose Member to Chat
+          </button>
         </div>
+      ) : (
+        <div className="portal-messages-layout">
+          {/* Left Side: Conversation list */}
+          <div className="portal-conversations-card">
+            <div className="conversations-header">
+              <h3>Conversations</h3>
+              {totalUnread > 0 && <span className="unread-count" style={{ background: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>{totalUnread} unread</span>}
+            </div>
 
-        {/* Right Side: Chat Window */}
-        <div className="portal-chat-card">
-          {activeConversation ? (
-            <>
-              {/* Header */}
-              <div className="chat-header">
-                <div className="chat-partner-info">
-                  <div className={`conv-avatar ${activeConversation.is_broadcast ? 'broadcast' : ''}`}>
-                    {activeConversation.is_broadcast ? '📢' : getInitials(activeConversation.partnerName)}
+            <div className="conversations-search">
+              <input
+                type="text"
+                placeholder="Search chats..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            <div className="conversations-list">
+              {filteredConversations.length === 0 ? (
+                <div style={{ padding: '2rem 1rem', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
+                  No chats matching your filter.
+                </div>
+              ) : (
+                filteredConversations.map((conv) => {
+                  const isActive = activeConversation?.id === conv.id;
+                  const hasUnread = conv.unreadCount > 0;
+
+                  return (
+                    <div
+                      key={conv.id}
+                      className={`conv-item ${isActive ? 'active' : ''} ${hasUnread ? 'unread' : ''}`}
+                      onClick={() => handleSelectConversation(conv)}
+                    >
+                      <div className={`conv-avatar ${conv.is_broadcast ? 'broadcast' : ''}`}>
+                        {conv.is_broadcast ? '📢' : getInitials(conv.partnerName)}
+                      </div>
+                      <div className="conv-info">
+                        <div className="conv-top">
+                          <span className="conv-name" style={{ fontWeight: hasUnread ? '800' : '600' }}>
+                            {conv.partnerName}
+                          </span>
+                          <span className="conv-time">
+                            {new Date(conv.lastMessageTime).toLocaleDateString('en-KE', { month: 'short', day: 'numeric' })}
+                          </span>
+                        </div>
+                        <div className="conv-subject">
+                          {conv.is_broadcast ? '📢 ' : ''}
+                          {conv.subject}
+                        </div>
+                        <div className="conv-preview">{conv.lastMessage}</div>
+                      </div>
+                      {conv.unreadCount > 0 && (
+                        <span style={{ background: '#dc2626', color: 'white', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700' }}>
+                          {conv.unreadCount}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Right Side: Chat Window */}
+          <div className="portal-chat-card">
+            {activeConversation ? (
+              <>
+                {/* Header */}
+                <div className="chat-header">
+                  <div className="chat-partner-info">
+                    <div className={`conv-avatar ${activeConversation.is_broadcast ? 'broadcast' : ''}`}>
+                      {activeConversation.is_broadcast ? '📢' : getInitials(activeConversation.partnerName)}
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '15px' }}>{activeConversation.is_broadcast ? 'Chapter Broadcast' : activeConversation.partnerName}</h3>
+                      <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                        {activeConversation.partnerEmail ? `Email: ${activeConversation.partnerEmail} • ` : ''}
+                        <strong>Topic:</strong> {activeConversation.subject || 'Direct Chat'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3>{activeConversation.is_broadcast ? 'Chapter Broadcast' : activeConversation.partnerName}</h3>
-                    <p>
-                      {activeConversation.partnerEmail ? `Email: ${activeConversation.partnerEmail}` : 'Red Cross Member'} •{' '}
-                      {activeConversation.subject || 'Portal Chat'}
-                    </p>
+
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {activeConversation.partnerEmail && (
+                      <a
+                        href={`mailto:${activeConversation.partnerEmail}?subject=Re: ${encodeURIComponent(activeConversation.subject || 'Chat')} - Kenya Red Cross KyU`}
+                        className="button button-outline"
+                        style={{ padding: '5px 10px', fontSize: '12px', textDecoration: 'none' }}
+                      >
+                        ✉ External Email
+                      </a>
+                    )}
+                    {!activeConversation.isDraft && (
+                      <button
+                        className="button button-outline"
+                        style={{ padding: '5px 10px', fontSize: '12px', color: '#dc2626', borderColor: '#fca5a5' }}
+                        onClick={(e) => handleDeleteConversation(activeConversation, e)}
+                      >
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {activeConversation.partnerEmail && (
-                  <a
-                    href={`mailto:${activeConversation.partnerEmail}?subject=Re: ${encodeURIComponent(activeConversation.subject || 'Chat')} - Kenya Red Cross KyU`}
-                    className="button button-outline"
-                    style={{ padding: '6px 12px', fontSize: '12px', textDecoration: 'none' }}
-                  >
-                    ✉ External Email
-                  </a>
-                )}
-              </div>
+                {/* Chat Timeline */}
+                <div className="chat-stream">
+                  {activeConversation.messages && activeConversation.messages.length > 0 ? (
+                    activeConversation.messages.map((msg) => {
+                      const myEmail = (currentUser.email || '').toLowerCase().trim();
+                      const sEmail = (msg.sender_email || extractEmail(msg.sender_name) || '').toLowerCase().trim();
+                      const isOutgoing =
+                        (myEmail && sEmail === myEmail) ||
+                        msg.sender_name === currentUser.name ||
+                        msg.sender_name?.toLowerCase() === 'member user';
 
-              {/* Chat Timeline (All messages in this conversation thread) */}
-              <div className="chat-stream">
-                {activeConversation.messages && activeConversation.messages.length > 0 ? (
-                  activeConversation.messages.map((msg) => {
-                    const myEmail = (currentUser.email || '').toLowerCase().trim();
-                    const sEmail = (msg.sender_email || extractEmail(msg.sender_name) || '').toLowerCase().trim();
-                    const isOutgoing =
-                      (myEmail && sEmail === myEmail) ||
-                      msg.sender_name === currentUser.name ||
-                      msg.sender_name?.toLowerCase() === 'member user';
-
-                    return (
-                      <div
-                        key={msg.id}
-                        className={`chat-bubble-row ${isOutgoing ? 'outgoing' : 'incoming'}`}
-                      >
-                        <div className="chat-bubble">
-                          <div style={{ fontSize: '11.5px', fontWeight: 'bold', marginBottom: '2px', opacity: 0.9 }}>
-                            {isOutgoing ? 'You' : (msg.sender_name?.replace(/\([^)]*\)/g, '').trim() || 'Sender')}
-                          </div>
-                          <div style={{ whiteSpace: 'pre-line' }}>{msg.text}</div>
-                          <div className="chat-meta">
-                            <span>
-                              {new Date(msg.created_at).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                            {msg.receiver_email && (
-                              <span style={{ fontSize: '10px', opacity: 0.85 }}>
-                                • ✉ Emailed to {msg.receiver_email}
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`chat-bubble-row ${isOutgoing ? 'outgoing' : 'incoming'}`}
+                        >
+                          <div className="chat-bubble">
+                            <div style={{ fontSize: '11.5px', fontWeight: 'bold', marginBottom: '2px', opacity: 0.9 }}>
+                              {isOutgoing ? 'You' : (msg.sender_name?.replace(/\([^)]*\)/g, '').trim() || 'Sender')}
+                            </div>
+                            <div style={{ whiteSpace: 'pre-line' }}>{msg.text}</div>
+                            <div className="chat-meta">
+                              <span>
+                                {new Date(msg.created_at).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' })}
                               </span>
-                            )}
+                              {msg.receiver_email && (
+                                <span style={{ fontSize: '10px', opacity: 0.85 }}>
+                                  • ✉ Emailed to {msg.receiver_email}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div style={{ textAlign: 'center', color: '#9ca3af', padding: '2rem 0' }}>
-                    <p>Start your conversation with <strong>{activeConversation.partnerName}</strong> below.</p>
-                  </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
+                      );
+                    })
+                  ) : (
+                    <div style={{ textAlign: 'center', color: '#9ca3af', padding: '2rem 0' }}>
+                      <p>Start your conversation with <strong>{activeConversation.partnerName}</strong> below.</p>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
 
-              {/* Input Area */}
-              <div className="chat-input-area">
-                {feedback && (
-                  <div style={{ color: '#059669', fontSize: '12px', fontWeight: '600', marginBottom: '6px' }}>
-                    {feedback}
+                {/* Input Area */}
+                <div className="chat-input-area">
+                  {feedback && (
+                    <div style={{ color: '#059669', fontSize: '12px', fontWeight: '600', marginBottom: '6px' }}>
+                      {feedback}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: '#64748b', marginBottom: '6px' }}>
+                    <span>
+                      💬 Chatting with <strong>{activeConversation.partnerName}</strong>
+                    </span>
+                    <span>Press Enter to send (Shift+Enter for new line)</span>
                   </div>
-                )}
-                <form onSubmit={handleSend} className="chat-input-row">
-                  <input
-                    type="text"
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    placeholder={`Type a message to ${activeConversation.partnerName}... (sent to portal & via email)`}
-                    disabled={sending}
-                  />
-                  <button type="submit" className="btn-send" disabled={sending || !text.trim()}>
-                    {sending ? 'Sending...' : 'Send'} <span>✈</span>
-                  </button>
-                </form>
+                  <form onSubmit={handleSend} className="chat-input-row">
+                    <textarea
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSend();
+                        }
+                      }}
+                      placeholder={`Type a message to ${activeConversation.partnerName}... (sent to portal & via email)`}
+                      rows={2}
+                      disabled={sending}
+                      style={{ flex: 1, padding: '10px 14px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', outline: 'none', resize: 'none' }}
+                    />
+                    <button type="submit" className="btn-send" disabled={sending || !text.trim()} style={{ height: 'auto', alignSelf: 'stretch' }}>
+                      {sending ? 'Sending...' : 'Send'} <span>✈</span>
+                    </button>
+                  </form>
+                </div>
+              </>
+            ) : (
+              <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#9ca3af', padding: '2rem' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>💬</div>
+                  <h3>Select a Conversation</h3>
+                  <p>Choose a chat from the left or click "Choose Member to Chat".</p>
+                </div>
               </div>
-            </>
-          ) : (
-            <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#9ca3af', padding: '2rem' }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>💬</div>
-                <h3>Start a Conversation</h3>
-                <p>Click "Choose Member to Chat" to find coordinators and volunteers.</p>
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Members Directory Modal */}
       {showDirectory && (
@@ -556,6 +723,61 @@ export default function Messages() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Broadcast Modal */}
+      {showBroadcastModal && (
+        <div className="modal-overlay" onClick={() => setShowBroadcastModal(false)}>
+          <div className="portal-directory-modal" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="directory-header">
+              <h3>Dispatch Chapter Broadcast</h3>
+              <button className="directory-close-btn" onClick={() => setShowBroadcastModal(false)}>
+                ✕
+              </button>
+            </div>
+
+            <p style={{ color: '#6b7280', fontSize: '13px', margin: '0 0 16px 0' }}>
+              Publish an announcement to the member portal message stream and dispatch email alerts to volunteers.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '700', marginBottom: '4px' }}>Announcement Subject</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Chapter Workshop & Drill Schedule"
+                  value={broadcastSubject}
+                  onChange={(e) => setBroadcastSubject(e.target.value)}
+                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '700', marginBottom: '4px' }}>Message Content</label>
+                <textarea
+                  rows={5}
+                  placeholder="Type your official announcement..."
+                  value={broadcastText}
+                  onChange={(e) => setBroadcastText(e.target.value)}
+                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box', resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                <button className="button button-outline" onClick={() => setShowBroadcastModal(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="button button-red"
+                  onClick={handleSendBroadcast}
+                  disabled={sendingBroadcast || !broadcastText.trim()}
+                >
+                  {sendingBroadcast ? 'Dispatching...' : 'Dispatch Announcement'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

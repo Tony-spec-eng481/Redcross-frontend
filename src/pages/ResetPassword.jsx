@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import axios from 'axios';
+import { BACKEND_URL } from '../config';
 import { Eye, EyeOff } from 'lucide-react';
 import './Auth.css';
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 export default function ResetPassword() {
   const navigate = useNavigate();

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE } from '../config';
 import { SectionHeading, gallery as fallbackGallery, imageUrl } from '../data';
 
 export default function Gallery() {
@@ -10,7 +11,7 @@ export default function Gallery() {
   useEffect(() => {
     const fetchGallery = async () => {
       try {
-        const res = await fetch('http://localhost:5000/api/v1/gallery');
+        const res = await fetch(`${API_BASE}/gallery`);
         const data = await res.json();
         const items = Array.isArray(data) ? data : (data?.data || []);
         if (items.length > 0) {
