@@ -919,6 +919,7 @@
 .activity-icon-bullet.member { background: #ecfdf5; color: #059669; }
 .activity-icon-bullet.event { background: #eff6ff; color: #2563eb; }
 .activity-icon-bullet.gallery { background: #fdf2f8; color: #db2777; }
+.activity-icon-bullet.message { background: #faf5ff; color: #9333ea; }
 .activity-icon-bullet.system { background: #f1f5f9; color: #64748b; }
 
 .activity-content {

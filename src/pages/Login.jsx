@@ -1,17 +1,23 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { API_BASE } from '../config';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle, Loader } from 'lucide-react';
 import './Auth.css';
 
 export default function Login() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  
+  // Pre-fill email from registration redirect
+  const registrationState = location.state || {};
+  const [email, setEmail] = useState(registrationState.email || '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState(registrationState.message || '');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
   
   const [attempts, setAttempts] = useState(0);
   const [lockoutUntil, setLockoutUntil] = useState(null);
@@ -94,7 +100,17 @@ export default function Login() {
         <p>Welcome back to KYU Red Cross</p>
 
         <form onSubmit={handleLogin} className="auth-form">
-          {error && <p className="error-message" style={{ color: 'red', fontSize: '0.875rem' }}>{error}</p>}
+          {successMessage && (
+            <div className="success-banner">
+              <CheckCircle size={16} />
+              <span>{successMessage}</span>
+            </div>
+          )}
+          {error && (
+            <div className="error-banner">
+              <span>{error}</span>
+            </div>
+          )}
           <div className="form-group">
             <label>Email Address</label>
             <input

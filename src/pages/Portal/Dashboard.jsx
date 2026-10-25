@@ -83,18 +83,52 @@ const DEFAULT_HERO_SLIDES = [
   },
 ];
 
+// Helper to format ISO timestamps into friendly relative human time
+const formatActivityTime = (timeStr) => {
+  if (!timeStr) return '';
+  if (typeof timeStr === 'string' && (timeStr.includes('Today') || timeStr.includes('ago') || timeStr.includes('Yesterday'))) {
+    return timeStr;
+  }
+  try {
+    const date = new Date(timeStr);
+    if (isNaN(date.getTime())) return timeStr;
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 2) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24 && date.getDate() === now.getDate()) {
+      return `Today, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    if (diffDays === 1 || (diffHours < 48 && date.getDate() === now.getDate() - 1)) {
+      return `Yesterday, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return timeStr;
+  }
+};
+
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  // Statistics State
+  // Statistics State — initialized to null so UI displays skeleton/loading until real data arrives
   const [stats, setStats] = useState({
-    totalMembers: 48,
-    activeEvents: 6,
-    pendingImages: 12,
-    totalMessages: 8,
+    totalMembers: null,
+    activeEvents: null,
+    pendingEvents: 0,
+    totalGallery: null,
+    approvedGallery: null,
+    pendingImages: 0,
+    totalMessages: null,
     unansweredQuestions: 0,
-    totalLeaders: 10,
-    pendingEvents: 2,
+    firstAidGuides: null,
+    activeHeroSlides: null,
+    disseminationModules: null,
   });
 
   // Hero Slides State (View Only)
@@ -127,70 +161,51 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Fetch all dashboard data
+  // Fetch all dashboard data from backend and Supabase database
   const fetchDashboardData = useCallback(async () => {
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+    const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
     try {
-      // 1. Fetch Stats
+      // 1. Fetch Real Database Stats
       try {
-        const statsRes = await axios.get(`${BACKEND_URL}/api/v1/stats`);
-        if (statsRes.data?.success && statsRes.data?.data) {
-          setStats(statsRes.data.data);
+        const statsRes = await axios.get(`${API_BASE}/stats`, { headers: authHeaders })
+          .catch(() => axios.get(`${BACKEND_URL}/api/stats`, { headers: authHeaders }))
+          .catch(() => axios.get(`${BACKEND_URL}/api/v1/admin/stats`, { headers: authHeaders }));
+        if (statsRes?.data?.data) {
+          setStats(prev => ({ ...prev, ...statsRes.data.data }));
+        } else if (statsRes?.data && typeof statsRes.data === 'object') {
+          setStats(prev => ({ ...prev, ...statsRes.data }));
         }
-      } catch {
-        try {
-          const statsRes2 = await axios.get(`${BACKEND_URL}/api/stats`);
-          if (statsRes2.data?.success && statsRes2.data?.data) {
-            setStats(statsRes2.data.data);
-          }
-        } catch {
-          // Keep default stats
-        }
+      } catch (err) {
+        console.warn('Stats fetch error:', err);
       }
 
       // 2. Fetch Hero Slides (View Only)
       try {
-        const heroRes = await axios.get(`${BACKEND_URL}/api/v1/hero`);
-        const heroData = Array.isArray(heroRes.data) ? heroRes.data : heroRes.data?.data;
+        const heroRes = await axios.get(`${API_BASE}/hero`)
+          .catch(() => axios.get(`${BACKEND_URL}/api/hero`));
+        const heroData = Array.isArray(heroRes?.data) ? heroRes.data : heroRes?.data?.data;
         if (Array.isArray(heroData) && heroData.length > 0) {
           setHeroSlides(heroData);
         } else {
           setHeroSlides(DEFAULT_HERO_SLIDES);
         }
       } catch {
-        try {
-          const heroRes2 = await axios.get(`${BACKEND_URL}/api/hero`);
-          const heroData2 = Array.isArray(heroRes2.data) ? heroRes2.data : heroRes2.data?.data;
-          if (Array.isArray(heroData2) && heroData2.length > 0) {
-            setHeroSlides(heroData2);
-          } else {
-            setHeroSlides(DEFAULT_HERO_SLIDES);
-          }
-        } catch {
-          setHeroSlides(DEFAULT_HERO_SLIDES);
-        }
+        setHeroSlides(DEFAULT_HERO_SLIDES);
       }
 
-      // 3. Fetch Recent Activities
+      // 3. Fetch Real Recent Activities from Supabase
       try {
-        const actRes = await axios.get(`${BACKEND_URL}/api/v1/activity`);
-        const actData = Array.isArray(actRes.data) ? actRes.data : actRes.data?.data;
+        const actRes = await axios.get(`${API_BASE}/activity`, { headers: authHeaders })
+          .catch(() => axios.get(`${BACKEND_URL}/api/activity`, { headers: authHeaders }))
+          .catch(() => axios.get(`${BACKEND_URL}/api/v1/admin/activity`, { headers: authHeaders }));
+        const actData = Array.isArray(actRes?.data) ? actRes.data : actRes?.data?.data;
         if (Array.isArray(actData) && actData.length > 0) {
           setActivities(actData);
-        } else {
-          setActivities([
-            { id: 1, type: 'event', text: 'Peer First Aid Refresher Workshop scheduled', time: 'Today, 10:30 AM' },
-            { id: 2, type: 'gallery', text: 'Blood Donation Campus Drive photos uploaded', time: 'Yesterday, 3:15 PM' },
-            { id: 3, type: 'member', text: 'Emergency drill registration confirmed for KyU chapter', time: '2 days ago' },
-            { id: 4, type: 'system', text: 'Fundamental principles dissemination module updated', time: '3 days ago' },
-          ]);
         }
-      } catch {
-        setActivities([
-          { id: 1, type: 'event', text: 'Peer First Aid Refresher Workshop scheduled', time: 'Today, 10:30 AM' },
-          { id: 2, type: 'gallery', text: 'Blood Donation Campus Drive photos uploaded', time: 'Yesterday, 3:15 PM' },
-          { id: 3, type: 'member', text: 'Emergency drill registration confirmed for KyU chapter', time: '2 days ago' },
-          { id: 4, type: 'system', text: 'Fundamental principles dissemination module updated', time: '3 days ago' },
-        ]);
+      } catch (err) {
+        console.warn('Dashboard activity fetch error:', err);
       }
     } catch (err) {
       console.warn('Dashboard fetch error:', err);
@@ -303,7 +318,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── 2. High-Impact KPI Overview Cards ── */}
+      {/* ── 2. High-Impact KPI Overview Cards (Real Database Metrics) ── */}
       <div className="kpi-grid">
         {/* Total Members */}
         <div className="kpi-card members-kpi" onClick={() => navigate('/portal/profile')}>
@@ -314,7 +329,7 @@ export default function Dashboard() {
             <span className="kpi-pill kpi-pill-green">Active Roster</span>
           </div>
           <div className="kpi-value-block">
-            <span className="kpi-number">{loading ? '—' : stats.totalMembers}</span>
+            <span className="kpi-number">{loading || stats.totalMembers === null ? '—' : stats.totalMembers}</span>
             <span className="kpi-label">Registered Members</span>
           </div>
           <div className="kpi-footer">
@@ -336,7 +351,7 @@ export default function Dashboard() {
             )}
           </div>
           <div className="kpi-value-block">
-            <span className="kpi-number">{loading ? '—' : stats.activeEvents}</span>
+            <span className="kpi-number">{loading || stats.activeEvents === null ? '—' : stats.activeEvents}</span>
             <span className="kpi-label">Chapter Events</span>
           </div>
           <div className="kpi-footer">
@@ -351,10 +366,18 @@ export default function Dashboard() {
             <div className="kpi-icon-wrap">
               <ImageIcon size={24} />
             </div>
-            <span className="kpi-pill kpi-pill-red">Community</span>
+            {stats.pendingImages > 0 ? (
+              <span className="kpi-pill kpi-pill-orange">{stats.pendingImages} In Review</span>
+            ) : (
+              <span className="kpi-pill kpi-pill-red">Community</span>
+            )}
           </div>
           <div className="kpi-value-block">
-            <span className="kpi-number">{loading ? '—' : stats.pendingImages}</span>
+            <span className="kpi-number">
+              {loading || (stats.totalGallery === null && stats.approvedGallery === null)
+                ? '—'
+                : (stats.totalGallery || stats.approvedGallery || 0)}
+            </span>
             <span className="kpi-label">Gallery Photos</span>
           </div>
           <div className="kpi-footer">
@@ -372,7 +395,7 @@ export default function Dashboard() {
             <span className="kpi-pill kpi-pill-purple">Inbox</span>
           </div>
           <div className="kpi-value-block">
-            <span className="kpi-number">{loading ? '—' : stats.totalMessages}</span>
+            <span className="kpi-number">{loading || stats.totalMessages === null ? '—' : stats.totalMessages}</span>
             <span className="kpi-label">Communications</span>
           </div>
           <div className="kpi-footer">
@@ -390,7 +413,7 @@ export default function Dashboard() {
             <span className="kpi-pill kpi-pill-orange">Preparedness</span>
           </div>
           <div className="kpi-value-block">
-            <span className="kpi-number">14</span>
+            <span className="kpi-number">{loading || stats.firstAidGuides === null ? '—' : stats.firstAidGuides}</span>
             <span className="kpi-label">First Aid Guides</span>
           </div>
           <div className="kpi-footer">
@@ -414,7 +437,11 @@ export default function Dashboard() {
             <span className="kpi-pill kpi-pill-crimson">Live on Site</span>
           </div>
           <div className="kpi-value-block">
-            <span className="kpi-number">{loading ? '—' : heroSlides.filter(s => s.status === 'active').length}</span>
+            <span className="kpi-number">
+              {loading
+                ? '—'
+                : (stats.activeHeroSlides ?? heroSlides.filter(s => s.status === 'active').length)}
+            </span>
             <span className="kpi-label">Active Hero Slides</span>
           </div>
           <div className="kpi-footer">
@@ -647,20 +674,27 @@ export default function Dashboard() {
           </div>
 
           <div className="activity-list">
-            {activities.map(act => (
-              <div key={act.id} className="activity-item">
-                <div className={`activity-icon-bullet ${act.type}`}>
-                  {act.type === 'event' && <Calendar size={15} />}
-                  {act.type === 'gallery' && <ImageIcon size={15} />}
-                  {act.type === 'member' && <Users size={15} />}
-                  {act.type === 'system' && <ShieldCheck size={15} />}
-                </div>
-                <div className="activity-content">
-                  <p className="activity-text">{act.text}</p>
-                  <span className="activity-time">{act.time}</span>
-                </div>
+            {activities.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px 12px', color: '#94a3b8', fontSize: '13px' }}>
+                No recent chapter activities logged yet.
               </div>
-            ))}
+            ) : (
+              activities.map(act => (
+                <div key={act.id} className="activity-item">
+                  <div className={`activity-icon-bullet ${act.type || 'system'}`}>
+                    {act.type === 'event' && <Calendar size={15} />}
+                    {act.type === 'gallery' && <ImageIcon size={15} />}
+                    {act.type === 'member' && <Users size={15} />}
+                    {act.type === 'message' && <MessageSquare size={15} />}
+                    {act.type === 'system' && <ShieldCheck size={15} />}
+                  </div>
+                  <div className="activity-content">
+                    <p className="activity-text">{act.text}</p>
+                    <span className="activity-time">{formatActivityTime(act.time)}</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

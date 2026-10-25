@@ -173,15 +173,27 @@ export default function PortalLayout() {
         .then(res => {
           const raw = Array.isArray(res.data) ? res.data : res.data?.data || [];
           if (Array.isArray(raw) && raw.length > 0) {
-            const formatted = raw.map(m => ({
-              id: m.id,
-              text: m.is_broadcast
-                ? `📢 Announcement: ${m.subject || m.text}`
-                : `💬 Message from ${m.sender_name || 'Coordinator'}: ${m.text}`,
-              created_at: m.created_at,
-              is_read: m.is_read !== false,
-              link: '/portal/messages'
-            }));
+            const formatted = raw.map(m => {
+              let targetLink = '/portal/messages';
+              if (m.link) {
+                targetLink = m.link;
+              } else if (m.subject?.toLowerCase().includes('dissemination') || m.text?.toLowerCase().includes('dissemination')) {
+                targetLink = '/portal/dissemination';
+              } else if (m.subject?.toLowerCase().includes('first aid') || m.text?.toLowerCase().includes('first aid')) {
+                targetLink = '/portal/firstaid';
+              } else if (m.subject?.toLowerCase().includes('event') || m.text?.toLowerCase().includes('event')) {
+                targetLink = '/portal/events';
+              }
+              return {
+                id: m.id,
+                text: m.is_broadcast
+                  ? `📢 Announcement: ${m.subject || m.text}`
+                  : `💬 Message from ${m.sender_name || 'Coordinator'}: ${m.text}`,
+                created_at: m.created_at,
+                is_read: m.is_read !== false,
+                link: targetLink,
+              };
+            });
             setNotifications(formatted);
           }
         })
@@ -190,15 +202,27 @@ export default function PortalLayout() {
             .then(res2 => {
               const raw2 = Array.isArray(res2.data) ? res2.data : res2.data?.data || [];
               if (Array.isArray(raw2) && raw2.length > 0) {
-                const formatted = raw2.map(m => ({
-                  id: m.id,
-                  text: m.is_broadcast
-                    ? `📢 Announcement: ${m.subject || m.text}`
-                    : `💬 Message from ${m.sender_name || 'Coordinator'}: ${m.text}`,
-                  created_at: m.created_at,
-                  is_read: m.is_read !== false,
-                  link: '/portal/messages'
-                }));
+                const formatted = raw2.map(m => {
+                  let targetLink = '/portal/messages';
+                  if (m.link) {
+                    targetLink = m.link;
+                  } else if (m.subject?.toLowerCase().includes('dissemination') || m.text?.toLowerCase().includes('dissemination')) {
+                    targetLink = '/portal/dissemination';
+                  } else if (m.subject?.toLowerCase().includes('first aid') || m.text?.toLowerCase().includes('first aid')) {
+                    targetLink = '/portal/firstaid';
+                  } else if (m.subject?.toLowerCase().includes('event') || m.text?.toLowerCase().includes('event')) {
+                    targetLink = '/portal/events';
+                  }
+                  return {
+                    id: m.id,
+                    text: m.is_broadcast
+                      ? `📢 Announcement: ${m.subject || m.text}`
+                      : `💬 Message from ${m.sender_name || 'Coordinator'}: ${m.text}`,
+                    created_at: m.created_at,
+                    is_read: m.is_read !== false,
+                    link: targetLink,
+                  };
+                });
                 setNotifications(formatted);
               }
             })
