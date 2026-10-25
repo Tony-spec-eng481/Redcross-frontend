@@ -44,14 +44,22 @@ export default function Team() {
 
         if (isMounted) {
           if (fetchedData && fetchedData.length > 0) {
-            // Normalize backend leaders
-            const normalized = fetchedData.map(item => ({
-              id: item.id,
-              name: item.name,
-              role: item.role,
-              image: item.image,
-              bio: item.bio
-            }));
+            // Normalize backend leaders and defensively deduplicate
+            const seen = new Set();
+            const normalized = [];
+            for (const item of fetchedData) {
+              const dedupeKey = `${(item.name || '').trim().toLowerCase()}_${(item.role || '').trim().toLowerCase()}`;
+              if (!seen.has(dedupeKey)) {
+                seen.add(dedupeKey);
+                normalized.push({
+                  id: item.id,
+                  name: item.name,
+                  role: item.role,
+                  image: item.image,
+                  bio: item.bio
+                });
+              }
+            }
             setTeam(normalized);
           } else {
             // Fallback to static data
