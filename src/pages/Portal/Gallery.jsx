@@ -65,7 +65,7 @@ export default function PortalGallery() {
     fetchGallery();
   }, [fetchGallery]);
 
-  // Multiple Image Upload Handler
+  // Multiple Image Upload Handler (supports 1 or more images, appends to current selection)
   const handleMultipleUpload = async (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -93,21 +93,17 @@ export default function PortalGallery() {
 
       if (uploadedUrls.length > 0) {
         const newItems = uploadedUrls.map((url, i) => ({
-          id: Date.now() + i,
+          id: Date.now() + Math.random() + i,
           url,
-          title: form.title ? `${form.title} (${i + 1})` : files[i]?.name?.replace(/\.[^/.]+$/, '') || `Photo ${i + 1}`,
-          category: form.category || 'General',
-          description: form.description || '',
         }));
 
         setUploadedList((prev) => [...prev, ...newItems]);
-        setForm((prev) => ({ ...prev, image_url: uploadedUrls[0] }));
         showToast(`${uploadedUrls.length} image(s) uploaded successfully!`);
       } else {
         showToast('No image URLs returned from server.', 'error');
       }
     } catch (err) {
-      console.error('Multi upload error:', err);
+      console.warn('Multi upload endpoint failed, trying sequential single upload...', err);
       // Fallback to single sequential uploads
       try {
         const uploadedUrls = [];
@@ -119,18 +115,14 @@ export default function PortalGallery() {
             headers: { ...headers, 'Content-Type': 'multipart/form-data' },
           });
           const url = singleRes.data?.data?.url || singleRes.data?.url;
-          if (url) uploadedUrls.push({ url, name: file.name });
+          if (url) uploadedUrls.push({ url });
         }
         if (uploadedUrls.length > 0) {
           const newItems = uploadedUrls.map((item, i) => ({
-            id: Date.now() + i,
+            id: Date.now() + Math.random() + i,
             url: item.url,
-            title: form.title ? `${form.title} (${i + 1})` : item.name?.replace(/\.[^/.]+$/, '') || `Photo ${i + 1}`,
-            category: form.category || 'General',
-            description: form.description || '',
           }));
           setUploadedList((prev) => [...prev, ...newItems]);
-          setForm((prev) => ({ ...prev, image_url: uploadedUrls[0].url }));
           showToast(`${uploadedUrls.length} image(s) uploaded successfully!`);
         }
       } catch (fallbackErr) {
@@ -139,6 +131,7 @@ export default function PortalGallery() {
       }
     } finally {
       setUploading(false);
+      e.target.value = '';
     }
   };
 
@@ -146,62 +139,63 @@ export default function PortalGallery() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!editingId && uploadedList.length > 0) {
+    if (editingId) {
+      if (!form.image_url) {
+        showToast('Please upload or provide an image URL.', 'error');
+        return;
+      }
       setSaving(true);
       try {
-        const itemsToSubmit = uploadedList.map((item) => ({
-          title: item.title || form.title || 'Submitted Photo',
-          image_url: item.url,
-          category: item.category || form.category || 'General',
-          description: item.description || form.description || '',
+        await axios.patch(`${API}/member/${editingId}`, {
+          ...form,
           member_id: user.id,
-          member_name: user.name || '',
-          member_email: user.email || '',
-        }));
-
-        await axios.post(`${API}/submit-multiple`, {
-          items: itemsToSubmit,
-          member_id: user.id,
-          member_name: user.name || '',
-          member_email: user.email || '',
         }, { headers });
-
-        showToast(`${itemsToSubmit.length} photo(s) submitted for admin review!`);
+        showToast('Photo updated! It will be re-reviewed by an admin.');
         setShowForm(false);
         setEditingId(null);
         setForm({ title: '', image_url: '', category: 'General', description: '' });
         setUploadedList([]);
         fetchGallery();
       } catch (err) {
-        console.error('Submit multiple error:', err);
-        showToast('Failed to submit photos.', 'error');
+        console.error('Update error:', err);
+        showToast('Failed to update photo.', 'error');
       } finally {
         setSaving(false);
       }
       return;
     }
 
-    if (!form.image_url) {
-      showToast('Please upload or provide an image URL.', 'error');
+    // Collect all images (from file uploads + URL if entered)
+    const allImages = [...uploadedList];
+    if (form.image_url && form.image_url.trim() && !allImages.some(img => img.url === form.image_url.trim())) {
+      allImages.push({ id: Date.now(), url: form.image_url.trim() });
+    }
+
+    if (allImages.length === 0) {
+      showToast('Please upload or enter at least one photo.', 'error');
       return;
     }
+
+    if (!form.title.trim()) {
+      showToast('Please enter a title for your photo(s).', 'error');
+      return;
+    }
+
     setSaving(true);
     try {
-      if (editingId) {
-        await axios.patch(`${API}/member/${editingId}`, {
-          ...form,
-          member_id: user.id,
-        }, { headers });
-        showToast('Photo updated! It will be re-reviewed by an admin.');
-      } else {
-        await axios.post(`${API}/submit`, {
-          ...form,
-          member_id: user.id,
-          member_name: user.name || '',
-          member_email: user.email || '',
-        }, { headers });
-        showToast('Photo submitted for admin review!');
-      }
+      const payload = {
+        images: allImages.map(img => img.url),
+        title: form.title.trim(),
+        description: form.description.trim(),
+        category: form.category || 'General',
+        member_id: user.id,
+        member_name: user.name || '',
+        member_email: user.email || '',
+      };
+
+      await axios.post(`${API}/submit`, payload, { headers });
+
+      showToast(`${allImages.length} photo(s) submitted for admin review!`);
       setShowForm(false);
       setEditingId(null);
       setForm({ title: '', image_url: '', category: 'General', description: '' });
@@ -209,7 +203,7 @@ export default function PortalGallery() {
       fetchGallery();
     } catch (err) {
       console.error('Submit error:', err);
-      showToast('Failed to submit photo.', 'error');
+      showToast(err.response?.data?.message || 'Failed to submit photo(s).', 'error');
     } finally {
       setSaving(false);
     }
@@ -336,79 +330,101 @@ export default function PortalGallery() {
           </div>
           <form onSubmit={handleSubmit}>
             {/* Image upload area */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 650, color: '#0f172a', marginBottom: 6 }}>
-                Images (Select single or multiple files) *
-              </label>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label style={{ fontSize: 13, fontWeight: 650, color: '#0f172a', margin: 0 }}>
+                  Photos (Upload 1 or more images) *
+                </label>
+                {uploadedList.length > 0 && !editingId && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#dc2626', cursor: 'pointer', background: '#fef2f2', border: '1px solid #fecaca', padding: '4px 10px', borderRadius: 6 }}>
+                    <span>+ Add More Photos</span>
+                    <input type="file" multiple accept="image/*" onChange={handleMultipleUpload} disabled={uploading} hidden />
+                  </label>
+                )}
+              </div>
 
               {/* Uploaded items list preview */}
               {uploadedList.length > 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 10, marginBottom: 12 }}>
                   {uploadedList.map((item, index) => (
-                    <div key={item.id} style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', border: '1px solid #cbd5e1', background: '#0f172a' }}>
-                      <img src={item.url} alt={`Upload ${index + 1}`} style={{ width: '100%', height: 110, objectFit: 'cover', display: 'block' }} />
+                    <div key={item.id} style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '1px solid #cbd5e1', background: '#f8fafc', aspectRatio: '1' }}>
+                      <img src={item.url} alt={`Upload ${index + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                       <button
                         type="button"
                         onClick={() => {
                           const updated = uploadedList.filter((_, i) => i !== index);
                           setUploadedList(updated);
-                          if (updated.length > 0) setForm(prev => ({ ...prev, image_url: updated[0].url }));
-                          else setForm(prev => ({ ...prev, image_url: '' }));
                         }}
-                        style={{ position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.7)', color: 'white', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}
+                        style={{ position: 'absolute', top: 5, right: 5, width: 22, height: 22, borderRadius: '50%', background: 'rgba(0,0,0,0.7)', color: 'white', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}
+                        title="Remove photo"
                       >
                         ✕
                       </button>
-                      <input
-                        type="text"
-                        placeholder={`Title #${index + 1}`}
-                        value={item.title}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setUploadedList(prev => prev.map((it, idx) => idx === index ? { ...it, title: val } : it));
-                        }}
-                        style={{ width: '100%', border: 'none', padding: '4px 6px', fontSize: 11, background: '#1e293b', color: 'white', boxSizing: 'border-box' }}
-                      />
                     </div>
                   ))}
                 </div>
               )}
 
-              {form.image_url && uploadedList.length === 0 ? (
-                <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0', marginBottom: 8 }}>
+              {editingId && form.image_url ? (
+                <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0', marginBottom: 8, maxHeight: 220 }}>
                   <img src={form.image_url} alt="Preview" style={{ width: '100%', height: 200, objectFit: 'cover', display: 'block' }} />
                   <button type="button" onClick={() => setForm(prev => ({ ...prev, image_url: '' }))}
                     style={{ position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', color: 'white', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>✕</button>
                 </div>
-              ) : (
+              ) : uploadedList.length === 0 ? (
                 <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '30px 20px', border: '2px dashed #dc2626', borderRadius: 10, cursor: 'pointer', color: '#64748b', background: '#fff5f5', transition: 'all 0.2s' }}>
                   <span style={{ fontSize: 28 }}>📸</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
-                    {uploading ? 'Uploading Images...' : 'Click or Drag to Upload Multiple Images'}
+                    {uploading ? 'Uploading Images...' : 'Click or Drag to Upload 1 or More Images'}
                   </span>
                   <span style={{ fontSize: 11.5, color: '#dc2626', fontWeight: 600 }}>
-                    Select multiple files at the same time (JPG, PNG, WEBP)
+                    Select 1 or multiple files at once (JPG, PNG, WEBP)
                   </span>
                   <input type="file" multiple accept="image/*" onChange={handleMultipleUpload} disabled={uploading} hidden />
                 </label>
-              )}
+              ) : null}
 
-              {uploading && <p style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, margin: '6px 0 0' }}>Uploading files, please wait...</p>}
+              {uploading && <p style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, margin: '8px 0 0' }}>Uploading files, please wait...</p>}
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
-                <span style={{ fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}>Or paste single image URL:</span>
-                <input type="text" placeholder="https://example.com/image.jpg" value={form.image_url}
+                <span style={{ fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}>Or paste image URL:</span>
+                <input
+                  type="text"
+                  placeholder="https://example.com/image.jpg"
+                  value={form.image_url}
                   onChange={(e) => setForm(prev => ({ ...prev, image_url: e.target.value }))}
-                  style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12 }} />
+                  style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12 }}
+                />
+                {form.image_url && form.image_url.trim() && !editingId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (form.image_url.trim()) {
+                        setUploadedList(prev => [...prev, { id: Date.now(), url: form.image_url.trim() }]);
+                        setForm(prev => ({ ...prev, image_url: '' }));
+                      }
+                    }}
+                    style={{ padding: '7px 12px', background: '#0f172a', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Add URL
+                  </button>
+                )}
               </div>
             </div>
 
             {/* Title */}
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 650, color: '#0f172a', marginBottom: 6 }}>Title / Batch Headline *</label>
-              <input type="text" required={uploadedList.length === 0} placeholder="Give your photo or batch a title" value={form.title}
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 650, color: '#0f172a', marginBottom: 6 }}>
+                Title *
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="Title for this photo / batch"
+                value={form.title}
                 onChange={(e) => setForm(prev => ({ ...prev, title: e.target.value }))}
-                style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13, boxSizing: 'border-box' }} />
+                style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13, boxSizing: 'border-box' }}
+              />
             </div>
 
             {/* Category & Description row */}

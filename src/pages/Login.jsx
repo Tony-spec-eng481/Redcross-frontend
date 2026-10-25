@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { API_BASE } from '../config';
-import { Eye, EyeOff, CheckCircle, Loader } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle, Loader, ArrowLeft } from 'lucide-react';
 import './Auth.css';
 
 export default function Login() {
@@ -96,6 +96,11 @@ export default function Login() {
   return (
     <div className="auth-container">
       <div className="auth-card">
+        <Link to="/" className="auth-back-link" title="Return to home page">
+          <ArrowLeft size={16} />
+          <span>Back to Home</span>
+        </Link>
+
         <h2>Member Login</h2>
         <p>Welcome back to KYU Red Cross</p>
 
@@ -151,6 +156,11 @@ export default function Login() {
         </form>
         <p className="auth-footer">
           Don't have an account? <Link to="/register">Register here</Link>
+        </p>
+        <p className="auth-footer" style={{ marginTop: '0.75rem' }}>
+          <Link to="/" style={{ color: 'var(--gray-500, #6b7280)', fontWeight: 'normal', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span>← Back to Home</span>
+          </Link>
         </p>
       </div>
     </div>

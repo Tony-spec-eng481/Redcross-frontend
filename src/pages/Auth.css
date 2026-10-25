@@ -20,6 +20,21 @@
   margin-bottom: 0.5rem;
   font-size: 1.75rem;
 }
+.auth-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--gray-600, #4b5563);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 1.5rem;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+.auth-back-link:hover {
+  color: var(--red-600, #dc2626);
+  transform: translateX(-3px);
+}
 .auth-card p {
   color: var(--gray-500, #6b7280);
   margin-bottom: 2rem;
